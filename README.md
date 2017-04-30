@@ -6,14 +6,19 @@ F1 is no good for you?
 
 To do this, you'll need to download a copy of Autohotkey yourself, download source files, make the neccesary changes, and then compile them. Or ask a friend who knows these kinda things to do it for you.
 
-Syntax: 
-!	Alt
-^	Control
-+	Shift
+Syntax tips:
+
+Alt = '!'
+
+Control = '^'
+
+Shift = '+'
 
 +F1   then becomes Shift+F1 on keyboard.
 
 ^m    then becomes Control+M on keyboard.
 
+^+m 	then becomes control + shift + m on keyboard
 
-It is possible to stack multiple keybinds on top of each other to all perform the same action. 
+
+It is possible to stack multiple keybinds on top of each other to all perform the same action.
