@@ -2,67 +2,86 @@
 #Include VA.ahk
 
 F1::  ; F1 hotkey - toggle mute state of active window
-  WinGet, ActivePid, PID, A
-  if !(Volume := GetVolumeObject(ActivePid))
+  WindowEXE := WinExist("A")
+    ControlGetFocus, FocusedControl, ahk_id %WindowEXE%
+    ControlGet, Hwnd, Hwnd,, %FocusedControl%, ahk_id %WindowEXE%
+    WinGet, simplexe, processname, ahk_id %Hwnd%
+  if !(Volume := GetVolumeObject(simplexe))
     MsgBox, There was a problem retrieving the application volume interface
   VA_ISimpleAudioVolume_GetMute(Volume, Mute)  ;Get mute state
-  ; Msgbox % "Application " ActivePID " is currently " (mute ? "muted" : "not muted")
+  ; Msgbox % "Application " simplexe " is currently " (mute ? "muted" : "not muted")
   VA_ISimpleAudioVolume_SetMute(Volume, !Mute) ;Toggle mute state
   ObjRelease(Volume)
 return
 
 ;Required for app specific mute
-GetVolumeObject(Param = 0)
-{
+GetVolumeObject(ProcessName) {
     static IID_IASM2 := "{77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F}"
     , IID_IASC2 := "{bfb7ff88-7239-4fc9-8fa2-07c950be9c6d}"
     , IID_ISAV := "{87CE5498-68D6-44E5-9215-6DA47EF883D8}"
 
-    ; Get PID from process name
-    if Param is not Integer
+    ; Get all audio devices
+    Loop, 10 ; Change the loop limit based on the number of audio devices you have
     {
-        Process, Exist, %Param%
-        Param := ErrorLevel
-    }
-
-    ; GetDefaultAudioEndpoint
-    DAE := VA_GetDevice()
-
-    ; activate the session manager
-    VA_IMMDevice_Activate(DAE, IID_IASM2, 0, 0, IASM2)
-
-    ; enumerate sessions for on this device
-    VA_IAudioSessionManager2_GetSessionEnumerator(IASM2, IASE)
-    VA_IAudioSessionEnumerator_GetCount(IASE, Count)
-
-    ; search for an audio session with the required name
-    Loop, % Count
-    {
-        ; Get the IAudioSessionControl object
-        VA_IAudioSessionEnumerator_GetSession(IASE, A_Index-1, IASC)
-
-        ; Query the IAudioSessionControl for an IAudioSessionControl2 object
-        IASC2 := ComObjQuery(IASC, IID_IASC2)
-        ObjRelease(IASC)
-
-        ; Get the session's process ID
-        VA_IAudioSessionControl2_GetProcessID(IASC2, SPID)
-
-        ; If the process name is the one we are looking for
-        if (SPID == Param)
+        DAE := VA_GetDevice(A_Index)
+        if (DAE)
         {
-            ; Query for the ISimpleAudioVolume
-            ISAV := ComObjQuery(IASC2, IID_ISAV)
+            ; Activate the session manager
+            VA_IMMDevice_Activate(DAE, IID_IASM2, 0, 0, IASM2)
 
-            ObjRelease(IASC2)
-            break
+            ; Enumerate sessions for the current device
+            VA_IAudioSessionManager2_GetSessionEnumerator(IASM2, IASE)
+            VA_IAudioSessionEnumerator_GetCount(IASE, Count)
+
+            ; Initialize ISAV to null
+            ISAV := 0
+
+            ; Search for an audio session with the required name for the current device
+            Loop, % Count
+            {
+                VA_IAudioSessionEnumerator_GetSession(IASE, A_Index-1, IASC)
+                IASC2 := ComObjQuery(IASC, IID_IASC2)
+
+                ; If IAudioSessionControl2 is queried successfully
+                if (IASC2)
+                {
+                    VA_IAudioSessionControl2_GetProcessID(IASC2, SPID)
+                    ProcessNameFromPID := GetProcessNameFromPID(SPID)
+
+                    ; If the process name matches the one we are looking for
+                    if (ProcessNameFromPID == ProcessName)
+                    {
+                        ISAV := ComObjQuery(IASC2, IID_ISAV)
+                        ObjRelease(IASC2)
+                        break
+                    }
+
+                    ObjRelease(IASC2)
+                }
+
+                ObjRelease(IASC)
+            }
+
+            ObjRelease(IASE)
+            ObjRelease(IASM2)
+            ObjRelease(DAE)
+
+            ; If we found the audio session, break out of the outer loop
+            if (ISAV)
+                break
         }
-        ObjRelease(IASC2)
     }
-    ObjRelease(IASE)
-    ObjRelease(IASM2)
-    ObjRelease(DAE)
+
     return ISAV
+}
+
+GetProcessNameFromPID(PID)
+{
+    hProcess := DllCall("OpenProcess", "UInt", 0x0400 | 0x0010, "Int", false, "UInt", PID)
+    VarSetCapacity(ExeName, 260, 0)
+    DllCall("Psapi.dll\GetModuleFileNameEx", "UInt", hProcess, "UInt", 0, "Str", ExeName, "UInt", 260)
+    DllCall("CloseHandle", "UInt", hProcess)
+    return SubStr(ExeName, InStr(ExeName, "\", false, -1) + 1)
 }
 
 ;
