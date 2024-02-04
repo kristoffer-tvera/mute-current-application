@@ -66,7 +66,7 @@ GetVolumeObject(ProcessName) {
     ; Mute all found instances
     Loop, % ISAVArray.Length()
     {
-        VA_ISimpleAudioVolume_GetMute(ISAVArray[A_Index-1], Mute)
+        VA_ISimpleAudioVolume_GetMute(ISAVArray[1], Mute)
         VA_ISimpleAudioVolume_SetMute(ISAVArray[A_Index-1], !Mute)
         ObjRelease(ISAVArray[A_Index-1])
     }
