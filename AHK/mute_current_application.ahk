@@ -1,5 +1,4 @@
-; #Include E:\ahk\VA.ahk
-#Include VA.ahk
+#Include %A_ScriptDir%\VA.ahk
 
 F1::  ; F1 hotkey - toggle mute state of active window
   WindowEXE := WinExist("A")
@@ -7,17 +6,18 @@ F1::  ; F1 hotkey - toggle mute state of active window
     ControlGet, Hwnd, Hwnd,, %FocusedControl%, ahk_id %WindowEXE%
     WinGet, simplexe, processname, ahk_id %Hwnd%
   if !(Volume := GetVolumeObject(simplexe))
-   MsgBox, There was a problem retrieving the application volume interface
+    ToolTip, There was a problem retrieving the application volume interface
+    SetTimer, RemoveToolTip, 500 ; Display the tooltip for 3 seconds
+  VA_ISimpleAudioVolume_GetMute(Volume, Mute)  ;Get mute state
+  ; Msgbox % "Application " simplexe " is currently " (mute ? "muted" : "not muted")
+  VA_ISimpleAudioVolume_SetMute(Volume, !Mute) ;Toggle mute state
+  ObjRelease(Volume)
 return
 
-;Required for app specific mute
-GetVolumeObject(ProcessName) {
+GetVolumeObject(targetExeName) {
     static IID_IASM2 := "{77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F}"
     , IID_IASC2 := "{bfb7ff88-7239-4fc9-8fa2-07c950be9c6d}"
     , IID_ISAV := "{87CE5498-68D6-44E5-9215-6DA47EF883D8}"
-
-    ; Initialize an array to store ISAV objects
-    ISAVArray := []
 
     ; Get all audio devices
     Loop, 10 ; Change the loop limit based on the number of audio devices you have
@@ -25,36 +25,56 @@ GetVolumeObject(ProcessName) {
         DAE := VA_GetDevice(A_Index)
         if (DAE)
         {
-            ; Activate the session manager
-            VA_IMMDevice_Activate(DAE, IID_IASM2, 0, 0, IASM2)
+            ; Check if the device is active and a rendering endpoint
+            VA_IMMDevice_GetState(DAE, State)
+            VA_IConnector_GetDataFlow(DAE, DataFlow)
 
-            ; Enumerate sessions for the current device
-            VA_IAudioSessionManager2_GetSessionEnumerator(IASM2, IASE)
-            VA_IAudioSessionEnumerator_GetCount(IASE, Count)
-
-            ; Search for all instances of the specified process name for the current device
-            Loop, % Count
+            if (State == 1 && DataFlow == 0)  ; Check if the device is active and rendering
             {
-                VA_IAudioSessionEnumerator_GetSession(IASE, A_Index-1, IASC)
-                IASC2 := ComObjQuery(IASC, IID_IASC2)
+                ; Activate the session manager
+                VA_IMMDevice_Activate(DAE, IID_IASM2, 0, 0, IASM2)
 
-                ; If IAudioSessionControl2 is queried successfully
-                if (IASC2)
+                ; Enumerate sessions for the current device
+                VA_IAudioSessionManager2_GetSessionEnumerator(IASM2, IASE)
+                VA_IAudioSessionEnumerator_GetCount(IASE, Count)
+
+                ; Search for an audio session with the required name for the current device
+                Loop, % Count
                 {
-                    VA_IAudioSessionControl2_GetProcessID(IASC2, SPID)
-                    ProcessNameFromPID := GetProcessNameFromPID(SPID)
+                    VA_IAudioSessionEnumerator_GetSession(IASE, A_Index-1, IASC)
+                    IASC2 := ComObjQuery(IASC, IID_IASC2)
 
-                    ; If the process name matches the one we are looking for
-                    if (ProcessNameFromPID == ProcessName)
+                    ; If IAudioSessionControl2 is queried successfully
+                    if (IASC2)
                     {
-                        ISAV := ComObjQuery(IASC2, IID_ISAV)
-                        ISAVArray.Insert(ISAV)
+                        VA_IAudioSessionControl2_GetProcessID(IASC2, SPID)
+                        ProcessNameFromPID := GetProcessNameFromPID(SPID)
+
+                        ; If the process name matches the one we are looking for
+                        if (ProcessNameFromPID == targetExeName)
+                        {
+                            ; Check if the session is active before retrieving volume interface
+                            VA_IAudioSessionControl_GetState(IASC2, SessionState)
+                            if (SessionState == 1) ; AudioSessionStateActive
+                            {
+                                ISAV := ComObjQuery(IASC2, IID_ISAV)
+                                if (ISAV)
+                                {
+                                    return ISAV ;
+                                }
+                                else
+                                {
+                                    return
+                                }
+                            }
+                            ObjRelease(IASC2)
+                        }
+
+                        ObjRelease(IASC2)
                     }
 
-                    ObjRelease(IASC2)
+                    ObjRelease(IASC)
                 }
-
-                ObjRelease(IASC)
             }
 
             ObjRelease(IASE)
@@ -63,15 +83,8 @@ GetVolumeObject(ProcessName) {
         }
     }
 
-    ; Mute all found instances
-    Loop, % ISAVArray.Length()
-    {
-        VA_ISimpleAudioVolume_GetMute(ISAVArray[1], Mute)
-        VA_ISimpleAudioVolume_SetMute(ISAVArray[A_Index-1], !Mute)
-        ObjRelease(ISAVArray[A_Index-1])
-    }
-
-    return ISAVArray  ; Return the array of ISAV objects
+    ; MsgBox No active audio session found for the specified process: %targetExeName%
+    return ; Return 0 if there's an issue retrieving the interface
 }
 
 GetProcessNameFromPID(PID)
@@ -82,6 +95,12 @@ GetProcessNameFromPID(PID)
     DllCall("CloseHandle", "UInt", hProcess)
     return SubStr(ExeName, InStr(ExeName, "\", false, -1) + 1)
 }
+
+RemoveToolTip:
+    ToolTip ; Remove the tooltip
+    SetTimer, RemoveToolTip, Off ; Turn off the timer
+    return
+
 
 ;
 ; ISimpleAudioVolume : {87CE5498-68D6-44E5-9215-6DA47EF883D8}
