@@ -7,11 +7,7 @@ F1::  ; F1 hotkey - toggle mute state of active window
     ControlGet, Hwnd, Hwnd,, %FocusedControl%, ahk_id %WindowEXE%
     WinGet, simplexe, processname, ahk_id %Hwnd%
   if !(Volume := GetVolumeObject(simplexe))
-    MsgBox, There was a problem retrieving the application volume interface
-  VA_ISimpleAudioVolume_GetMute(Volume, Mute)  ;Get mute state
-  ; Msgbox % "Application " simplexe " is currently " (mute ? "muted" : "not muted")
-  VA_ISimpleAudioVolume_SetMute(Volume, !Mute) ;Toggle mute state
-  ObjRelease(Volume)
+   MsgBox, There was a problem retrieving the application volume interface
 return
 
 ;Required for app specific mute
@@ -19,6 +15,9 @@ GetVolumeObject(ProcessName) {
     static IID_IASM2 := "{77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F}"
     , IID_IASC2 := "{bfb7ff88-7239-4fc9-8fa2-07c950be9c6d}"
     , IID_ISAV := "{87CE5498-68D6-44E5-9215-6DA47EF883D8}"
+
+    ; Initialize an array to store ISAV objects
+    ISAVArray := []
 
     ; Get all audio devices
     Loop, 10 ; Change the loop limit based on the number of audio devices you have
@@ -33,10 +32,7 @@ GetVolumeObject(ProcessName) {
             VA_IAudioSessionManager2_GetSessionEnumerator(IASM2, IASE)
             VA_IAudioSessionEnumerator_GetCount(IASE, Count)
 
-            ; Initialize ISAV to null
-            ISAV := 0
-
-            ; Search for an audio session with the required name for the current device
+            ; Search for all instances of the specified process name for the current device
             Loop, % Count
             {
                 VA_IAudioSessionEnumerator_GetSession(IASE, A_Index-1, IASC)
@@ -52,8 +48,7 @@ GetVolumeObject(ProcessName) {
                     if (ProcessNameFromPID == ProcessName)
                     {
                         ISAV := ComObjQuery(IASC2, IID_ISAV)
-                        ObjRelease(IASC2)
-                        break
+                        ISAVArray.Insert(ISAV)
                     }
 
                     ObjRelease(IASC2)
@@ -65,14 +60,18 @@ GetVolumeObject(ProcessName) {
             ObjRelease(IASE)
             ObjRelease(IASM2)
             ObjRelease(DAE)
-
-            ; If we found the audio session, break out of the outer loop
-            if (ISAV)
-                break
         }
     }
 
-    return ISAV
+    ; Mute all found instances
+    Loop, % ISAVArray.Length()
+    {
+        VA_ISimpleAudioVolume_GetMute(ISAVArray[A_Index-1], Mute)
+        VA_ISimpleAudioVolume_SetMute(ISAVArray[A_Index-1], !Mute)
+        ObjRelease(ISAVArray[A_Index-1])
+    }
+
+    return ISAVArray  ; Return the array of ISAV objects
 }
 
 GetProcessNameFromPID(PID)
